@@ -1,8 +1,8 @@
 #!/bin/bash
 
-#SBATCH --job-name=test_diff
+#SBATCH --job-name=test_corediff
 #SBATCH --partition=dgx_normal_q
-#SBATCH --time=20:00:00
+#SBATCH --time=35:00:00
 #SBATCH -A HPCBIGDATA2
 #SBATCH --gres=gpu:1
 #SBATCH --nodes=1

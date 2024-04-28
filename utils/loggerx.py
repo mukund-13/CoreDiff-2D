@@ -80,6 +80,17 @@ class LoggerX(object):
         if self.local_rank == 0:
             print(output_str)
 
+    # def save_image(self, grid_img, n_iter, sample_type):
+    #     # Construct filename safely, ensuring no invalid characters or unintended path components
+    #     filename = f"{n_iter}_{self.local_rank}_{sample_type}.png"  # Ensures proper extension
+    #     full_path = os.path.join(self.images_save_dir, filename)  # Construct the full path properly
+    #     print("Saving image to:", full_path)  # Debug statement
+    #     try:
+    #         save_image(grid_img, full_path, nrow=1)  # Save the image
+    #         print("Image saved successfully.")
+    #     except Exception as e:
+    #         print(f"Failed to save image at {full_path}: {e}")
+
     def save_image(self, grid_img, n_iter, sample_type):
         save_image(grid_img, osp.join(self.images_save_dir,
                                       '{}_{}_{}.png'.format(n_iter, self.local_rank, sample_type)),

@@ -152,7 +152,7 @@ class corediff(TrainTask):
 
         if opt.wandb:
             wandb.log({'epoch': n_iter, 'PSNR': psnr, 'SSIM': ssim, 'RMSE': rmse})
-    
+
     @torch.no_grad()
     def generate_images(self, n_iter):
         opt = self.opt
@@ -181,8 +181,42 @@ class corediff(TrainTask):
             fake_imgs = fake_imgs.transpose(1, 0).reshape((-1, c, w, h))
 
             # Save or show images
+            sample_type = f"test_{self.dose}_{self.sampling_routine}_{n_iter}"
+            self.logger.save_image(torchvision.utils.make_grid(fake_imgs, nrow=3), n_iter, sample_type)
+
+    
+    @torch.no_grad()
+    def generate_images2(self, n_iter):
+        opt = self.opt
+        self.ema_model.eval()
+        # print(f"Testing on dataset: {opt.test_dataset}")
+
+
+        for i, batch_samples in enumerate(self.test_loader):
+            low_dose = batch_samples['LQ'].to(self.opt.device)
+            full_dose = batch_samples['HQ'].to(self.opt.device)
+
+            gen_full_dose, direct_recons, imstep_imgs = self.ema_model.sample(
+                batch_size = low_dose.shape[0],
+                img = low_dose,
+                t = self.T,
+                sampling_routine = self.sampling_routine,
+                n_iter=n_iter,
+                start_adjust_iter=opt.start_adjust_iter,
+            )
+
+            # Optionally perform any necessary transformations for display
+            low_dose = self.transfer_display_window(low_dose)
+            full_dose = self.transfer_display_window(full_dose)
+            gen_full_dose = self.transfer_display_window(gen_full_dose)
+
+            b, c, w, h = low_dose.size()
+            fake_imgs = torch.stack([low_dose, full_dose, gen_full_dose])
+            fake_imgs = fake_imgs.transpose(1, 0).reshape((-1, c, w, h))
+
+            # Save or show images
             self.logger.save_image(torchvision.utils.make_grid(fake_imgs, nrow=3),
-                                n_iter, 'test_{}_{}'.format(self.dose, self.sampling_routine) + '_' + opt.test_dataset)
+                                n_iter, 'test_{}_{}'.format(self.dose, self.sampling_routine) + '_' + opt.hq_dir_test)
 
 
     def test2(self, n_iter):

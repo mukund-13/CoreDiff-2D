@@ -38,19 +38,32 @@ def compute_PSNR(img1, img2, data_range):
 
 def compute_SSIM(img1, img2, data_range, window_size=11, channel=1, size_average=True):
     # referred from https://github.com/Po-Hsun-Su/pytorch-ssim
-    if len(img1.shape) == 2:
-        h, w = img1.shape
-        if type(img1) == torch.Tensor:
-            img1 = img1.view(1, 1, h, w)
-            img2 = img2.view(1, 1, h, w)
-        else:
-            img1 = torch.from_numpy(img1[np.newaxis, np.newaxis, :, :])
-            img2 = torch.from_numpy(img2[np.newaxis, np.newaxis, :, :])
-    window = create_window(window_size, channel)
-    window = window.type_as(img1)
+    # Assume img1 and img2 are [batch_size, channels, height, width]
+    if img1.shape[1] != 1:
+        img1 = img1.mean(dim=1, keepdim=True)
+    if img2.shape[1] != 1:
+        img2 = img2.mean(dim=1, keepdim=True)
 
-    mu1 = F.conv2d(img1, window, padding=window_size//2)
-    mu2 = F.conv2d(img2, window, padding=window_size//2)
+    window_size = 11
+    # sigma = 1.5
+    channel = img1.size(1)
+    window = torch.hann_window(window_size).unsqueeze(0).unsqueeze(0)
+    window = window.repeat(channel, 1, 1, 1).to(img1.device)
+    mu1 = F.conv2d(img1, window, padding=window_size//2, groups=channel)
+    mu2 = F.conv2d(img2, window, padding=window_size//2, groups=channel)
+    # if len(img1.shape) == 2:
+    #     h, w = img1.shape
+    #     if type(img1) == torch.Tensor:
+    #         img1 = img1.view(1, 1, h, w)
+    #         img2 = img2.view(1, 1, h, w)
+    #     else:
+    #         img1 = torch.from_numpy(img1[np.newaxis, np.newaxis, :, :])
+    #         img2 = torch.from_numpy(img2[np.newaxis, np.newaxis, :, :])
+    # window = create_window(window_size, channel)
+    # window = window.type_as(img1)
+
+    # mu1 = F.conv2d(img1, window, padding=window_size//2)
+    # mu2 = F.conv2d(img2, window, padding=window_size//2)
     mu1_sq, mu2_sq = mu1.pow(2), mu2.pow(2)
     mu1_mu2 = mu1*mu2
 

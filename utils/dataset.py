@@ -25,7 +25,42 @@ def read_correct_image(path):
     ct_org[neg_val_index] = -1024
     return ct_org
 
+
 class CTDataset(Dataset):
+    def __init__(self, root_dir_h, root_dir_l, length):
+        self.data_root_l = root_dir_l + "/"
+        self.data_root_h = root_dir_h + "/"
+        self.img_list_l = sorted(os.listdir(self.data_root_l))
+        self.img_list_h = sorted(os.listdir(self.data_root_h))
+        self.img_list_l = self.img_list_l[:length]
+        self.img_list_h = self.img_list_h[:length]
+
+    def __len__(self):
+        return len(self.img_list_l)
+
+    def __getitem__(self, idx):
+        image_input = read_correct_image(self.data_root_l + self.img_list_l[idx])
+        image_target = read_correct_image(self.data_root_h + self.img_list_h[idx])
+
+        # Normalize and process the images if necessary
+        image_input = ((image_input - np.min(image_input)) / (np.max(image_input) - np.min(image_input))).astype(np.float32)
+        image_target = ((image_target - np.min(image_target)) / (np.max(image_target) - np.min(image_target))).astype(np.float32)
+
+        # Reshape to [C, H, W]
+        image_input = image_input[np.newaxis, :, :]
+        image_target = image_target[np.newaxis, :, :]
+
+        # Repeat the single channel three times to create three channels
+        image_input = np.repeat(image_input, 3, axis=0)
+        image_target = np.repeat(image_target, 3, axis=0)
+
+        # Convert to PyTorch tensors
+        inputs = torch.from_numpy(image_input)
+        targets = torch.from_numpy(image_target)
+
+        return {'LQ': inputs, 'HQ': targets}
+
+class CTDatasetAyush(Dataset):
     def __init__(self, root_dir_h, root_dir_l,  length, root_hq_vgg3 = None, root_hq_vgg1= None):
         self.data_root_l = root_dir_l + "/"
         self.data_root_h = root_dir_h + "/"

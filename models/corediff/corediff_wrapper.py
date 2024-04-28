@@ -117,7 +117,7 @@ class UNet(nn.Module):
         )
 
         self.inc = nn.Sequential(
-            single_conv(1, 64), # changed from single_conv(in_channel, 64) to (1,64)
+            single_conv(in_channels, 64), # changed from single_conv(in_channel, 64) to (1,64)
             single_conv(64, 64)
         )
 
@@ -225,7 +225,7 @@ class UNet(nn.Module):
 
 
 class Network(nn.Module):
-    def __init__(self, in_channels=1, out_channels=1, context=True): #changed from 3 to 1
+    def __init__(self, in_channels=3, out_channels=1, context=True): #changed from 3 to 1
         super(Network, self).__init__()
         self.unet = UNet(in_channels=in_channels, out_channels=out_channels)
         self.context = context
@@ -235,7 +235,10 @@ class Network(nn.Module):
             x_middle = x[:, 1].unsqueeze(1)
         else:
             x_middle = x
-        
+
+        y = y.repeat(1, 3, 1, 1)  # repeat channels: from [N, 1, H, W] to [N, 3, H, W]
+        x_end = x_end.repeat(1, 3, 1, 1)  # repeat channels
+
         x_adjust = torch.cat((y, x_end), dim=1)
         x_adjust = x_adjust.mean(dim=1, keepdim=True)
 

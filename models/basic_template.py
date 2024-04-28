@@ -28,7 +28,7 @@ class TrainTask(object):
     def build_default_options():
         parser = argparse.ArgumentParser('Default arguments for training of different methods')
 
-        parser.add_argument('--save_freq', type=int, default=100,
+        parser.add_argument('--save_freq', type=int, default=2500,
                             help='save frequency')
         parser.add_argument('--batch_size', type=int, default=4,
                             help='batch_size')
@@ -36,11 +36,11 @@ class TrainTask(object):
                             help='test_batch_size')
         parser.add_argument('--num_workers', type=int, default=4,
                             help='num of workers to use')
-        parser.add_argument('--max_iter', type=int, default=1270,
+        parser.add_argument('--max_iter', type=int, default=150000,
                             help='number of training iterations')
         parser.add_argument('--resume_iter', type=int, default=0,
                             help='number of training epochs')
-        parser.add_argument('--test_iter', type=int, default=1270,
+        parser.add_argument('--test_iter', type=int, default=150000,
                             help='number of epochs for test')
         parser.add_argument("--local_rank", type=int, default=0)
         parser.add_argument("--mode", type=str, default='train')
@@ -78,6 +78,9 @@ class TrainTask(object):
         #Added
         parser.add_argument('--hq_dir', type=str, default='/projects/synergy_lab/garvit217/enhancement_data/train/HQ/', help='Path to high-quality dataset')
         parser.add_argument('--lq_dir', type=str, default='/projects/synergy_lab/garvit217/enhancement_data/train/LQ/', help='Path to low-quality dataset')
+        parser.add_argument('--hq_dir_test', type=str, default='/projects/synergy_lab/garvit217/enhancement_data/test/HQ/', help='Path to high-quality test dataset')
+        parser.add_argument('--lq_dir_test', type=str, default='/projects/synergy_lab/garvit217/enhancement_data/test/LQ/', help='Path to low-quality test dataset')
+    
         parser.add_argument('--dataset_length', type=int, default=5120, help='Number of images in dataset')
         parser.add_argument('--device', type=str, default='cuda', help='Device to run the model on')
 
@@ -92,7 +95,34 @@ class TrainTask(object):
         self.project_root = osp.dirname(osp.dirname(osp.dirname(osp.abspath(__file__))))
         return load_network(osp.join(self.project_root, 'pretrained', file_name))
     
-    def set_loader(self):
+    def set_loader(self, mode=None):
+        if mode:
+            self.opt.mode = mode
+        print(f"Setting loader with mode: {self.opt.mode}")
+        opt = self.opt
+        if opt.mode == 'train':
+            train_dataset = dataset_dict['train'](root_dir_h=opt.hq_dir, root_dir_l=opt.lq_dir, length=opt.dataset_length)
+            self.train_loader = DataLoader(
+                dataset=train_dataset,
+                batch_size=opt.batch_size,
+                shuffle=True,
+                num_workers=opt.num_workers,
+                pin_memory=True
+            )
+
+        if opt.mode == 'test' or 'test' in opt.mode:
+            print("Initializing test loader...")
+            test_dataset = dataset_dict['test'](root_dir_h=opt.hq_dir_test, root_dir_l=opt.lq_dir_test, length=914)
+            self.test_loader = DataLoader(
+                dataset=test_dataset,
+                batch_size=opt.test_batch_size,
+                shuffle=False,
+                num_workers=opt.num_workers,
+                pin_memory=True
+            )
+            print(f"Test loader initialized with {len(self.test_loader)} batches.")
+
+    def set_loader3(self):
         opt = self.opt
 
         if opt.mode == 'train':
@@ -237,12 +267,99 @@ class TrainTask(object):
 
     #     self.test_dataset = test_dataset
 
-
     def fit(self):
         opt = self.opt
         if opt.mode == 'train':
             if opt.resume_iter > 0:
                 self.logger.load_checkpoints(opt.resume_iter)
+
+            if not hasattr(self, 'test_loader'):
+                self.set_loader(mode='test')  # Ensure the test loader is set up
+
+            # Initialize the DataLoader iterator
+            loader_iter = iter(self.train_loader)
+
+            # Training routine with tqdm progress bar
+            for n_iter in tqdm.trange(opt.resume_iter + 1, opt.max_iter + 1, disable=(self.rank != 0)):
+                try:
+                    #get the next batch
+                    inputs = next(loader_iter)
+                except StopIteration:
+                    #reset
+                    loader_iter = iter(self.train_loader)
+                    inputs = next(loader_iter)
+
+                # Proceed with training using the inputs
+                self.train(inputs, n_iter)
+                if n_iter % opt.save_freq == 0:
+                    self.logger.checkpoints(n_iter)
+                    self.test(n_iter)
+                    self.generate_images(n_iter)
+
+        elif opt.mode == 'test':
+            self.logger.load_checkpoints(opt.test_iter)
+            self.test(opt.test_iter)
+            self.generate_images(opt.test_iter)
+
+        # Additional training modes
+        elif opt.mode == 'train_osl_framework':
+            self.logger.load_checkpoints(opt.test_iter)
+            self.train_osl_framework(opt.test_iter)
+
+        elif opt.mode == 'test_osl_framework':
+            self.logger.load_checkpoints(opt.test_iter)
+            self.test_osl_framework(opt.test_iter)
+
+    def fit3(self):
+        opt = self.opt
+        if opt.mode == 'train':
+            if opt.resume_iter > 0:
+                self.logger.load_checkpoints(opt.resume_iter)
+
+            if not hasattr(self, 'test_loader'):
+                self.set_loader(mode='test')  # Ensure the test loader is set up
+
+            # Repeatedly cycle through the training data
+            n_iter = opt.resume_iter + 1
+            while n_iter <= opt.max_iter:
+                try:
+                    loader = iter(self.train_loader)
+                    while True:
+                        inputs = next(loader)
+                        self.train(inputs, n_iter)
+                        if n_iter % opt.save_freq == 0:
+                            self.logger.checkpoints(n_iter)
+                            self.test(n_iter)
+                            self.generate_images(n_iter)
+                        n_iter += 1
+                        if n_iter > opt.max_iter:
+                            break
+                except StopIteration:
+                    # Restart from the beginning if the end of the dataset is reached
+                    continue
+
+        elif opt.mode == 'test':
+            self.logger.load_checkpoints(opt.test_iter)
+            self.test(opt.test_iter)
+            self.generate_images(opt.test_iter)
+
+        # Additional training modes
+        elif opt.mode == 'train_osl_framework':
+            self.logger.load_checkpoints(opt.test_iter)
+            self.train_osl_framework(opt.test_iter)
+
+        elif opt.mode == 'test_osl_framework':
+            self.logger.load_checkpoints(opt.test_iter)
+            self.test_osl_framework(opt.test_iter)
+
+    def fit2(self):
+        opt = self.opt
+        if opt.mode == 'train':
+            if opt.resume_iter > 0:
+                self.logger.load_checkpoints(opt.resume_iter)
+
+            if not hasattr(self, 'test_loader'):
+                self.set_loader(mode='test')  # Make sure this method can handle mode parameter and set up test_loader appropriately.
 
             # training routine
             loader = iter(self.train_loader)
@@ -258,6 +375,7 @@ class TrainTask(object):
             self.logger.load_checkpoints(opt.test_iter)
             self.test(opt.test_iter)
             self.generate_images(opt.test_iter)
+        
 
         # train one-shot learning framework
         elif opt.mode == 'train_osl_framework':
