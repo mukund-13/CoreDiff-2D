@@ -1,17 +1,20 @@
 # This part builds heavily on https://github.com/Hzzone/DU-GAN.
 import torch
 import os.path as osp
+
+import torchvision
 import tqdm
 import argparse
 import torch.distributed as dist
 from torch.utils.data import DataLoader
 import wandb
-
+from PIL import Image
 from utils.dataset import dataset_dict
 from utils.loggerx import LoggerX
+from utils.measure import compute_measure, gen_visualization_files
 from utils.sampler import RandomSampler
 from utils.ops import load_network
-
+import numpy as np
 
 class TrainTask(object):
 
@@ -78,10 +81,10 @@ class TrainTask(object):
         #Added
         parser.add_argument('--hq_dir', type=str, default='/projects/synergy_lab/garvit217/enhancement_data/train/HQ/', help='Path to high-quality dataset')
         parser.add_argument('--lq_dir', type=str, default='/projects/synergy_lab/garvit217/enhancement_data/train/LQ/', help='Path to low-quality dataset')
-        parser.add_argument('--hq_dir_test', type=str, default='/projects/synergy_lab/garvit217/enhancement_data/test/HQ/', help='Path to high-quality test dataset')
-        parser.add_argument('--lq_dir_test', type=str, default='/projects/synergy_lab/garvit217/enhancement_data/test/LQ/', help='Path to low-quality test dataset')
+        parser.add_argument('--hq_dir_test', type=str, default='/Users/ayushchaturvedi/Documents/test_data/HQ/', help='Path to high-quality test dataset')
+        parser.add_argument('--lq_dir_test', type=str, default='/Users/ayushchaturvedi/Documents/test_data/LQ/', help='Path to low-quality test dataset')
     
-        parser.add_argument('--dataset_length', type=int, default=5120, help='Number of images in dataset')
+        parser.add_argument('--dataset_length', type=int, default=784, help='Number of images in dataset')
         parser.add_argument('--device', type=str, default='cuda', help='Device to run the model on')
 
 
@@ -112,13 +115,13 @@ class TrainTask(object):
 
         if opt.mode == 'test' or 'test' in opt.mode:
             print("Initializing test loader...")
-            test_dataset = dataset_dict['test'](root_dir_h=opt.hq_dir_test, root_dir_l=opt.lq_dir_test, length=914)
+            test_dataset = dataset_dict['test'](root_dir_h=opt.hq_dir_test, root_dir_l=opt.lq_dir_test, length=784)
             self.test_loader = DataLoader(
                 dataset=test_dataset,
                 batch_size=opt.test_batch_size,
                 shuffle=False,
                 num_workers=opt.num_workers,
-                pin_memory=True
+                # pin_memory=True
             )
             print(f"Test loader initialized with {len(self.test_loader)} batches.")
 
@@ -435,10 +438,15 @@ class TrainTask(object):
         opt = self.opt
         self.ema_model.eval()
 
-        psnr, ssim, rmse = 0., 0., 0.
+        psnr= []
+        ssim=[]
+        rmse =[]
         for batch_samples in tqdm.tqdm(self.test_loader, desc='test'):
             low_dose = batch_samples['LQ'].to(self.opt.device)
             full_dose = batch_samples['HQ'].to(self.opt.device)
+            file_name = batch_samples['vol']
+            maxs = batch_samples['max']
+            mins = batch_samples['min']
 
             gen_full_dose, direct_recons, imstep_imgs = self.ema_model.sample(
                 batch_size = low_dose.shape[0],
@@ -452,16 +460,29 @@ class TrainTask(object):
             full_dose = self.transfer_calculate_window(full_dose)
             gen_full_dose = self.transfer_calculate_window(gen_full_dose)
         
-            data_range = full_dose.max() - full_dose.min()
-            psnr_score, ssim_score, rmse_score = compute_measure(full_dose, gen_full_dose, data_range)
-            psnr += psnr_score / len(self.test_loader)
-            ssim += ssim_score / len(self.test_loader)
+            # data_range = full_dose.max() - full_dose.min()
+            for m in range(self.batch_size):
+                file_name1 = file_name[m]
+                file_name1 = file_name1.replace(".IMA", ".tif")
+                im = Image.fromarray(gen_full_dose[m, 0, :, :])
+                im.save('reconstructed_images/test/' + file_name1)
+            gen_visualization_files(gen_full_dose, full_dose, low_dose, file_name, "test", maxs, mins)
+
+            msssim, rmse_score = compute_measure(full_dose, gen_full_dose)
+            # psnr += psnr_score / len(self.test_loader)
+            msssim += msssim / len(self.test_loader)
             rmse += rmse_score / len(self.test_loader)
-
-        self.logger.msg([psnr, ssim, rmse], n_iter)
-
-        if opt.wandb:
-            wandb.log({'epoch': n_iter, 'PSNR': psnr, 'SSIM': ssim, 'RMSE': rmse})
+        print("~~~~~~~~~~~~~~~~~~ everything completed ~~~~~~~~~~~~~~~~~~~~~~~~")
+        data1 = np.loadtxt('./visualize/test/mse_loss_target_out')
+        print("size of metrics: " + str(data1.shape))
+        data2 = np.loadtxt('./visualize/test/msssim_loss_target_out')
+        # print("size of out target: " + str(data2.shape))
+        # data3 = np.loadtxt('./visualize/test/ssim_loss_target_out')
+        # print("size of out target: " + str(data3.shape))
+        # data3 = np.append(data1, data2)
+        # print("size of append target: " + str(data3.shape))
+        print("Final avergae MSE: ", np.average(data1), "std dev.: ", np.std(data1))
+        print("Final average MSSSIM: " + 100 * np.average(data2), 'std dev : ', np.std(data2))
 
     @torch.no_grad()
     def generate_images(self, n_iter):

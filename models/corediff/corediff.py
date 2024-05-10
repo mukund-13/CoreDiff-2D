@@ -54,7 +54,7 @@ class corediff(TrainTask):
             timesteps=opt.T,
             context=opt.context
         ).cuda()
-    
+
         optimizer = torch.optim.Adam(model.parameters(), opt.init_lr)
         ema_model = copy.deepcopy(model)
 

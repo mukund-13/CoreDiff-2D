@@ -1,0 +1,1 @@
+python main.py --model_name corediff --batch_size 4 --max_iter 150000 --test_batch_size 1 --context --only_adjust_two_step --dose 5 --save_freq 2500 --mode test --test_iter 150000

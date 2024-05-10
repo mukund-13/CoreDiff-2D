@@ -7,7 +7,7 @@ import torch
 from functools import partial
 import torch.nn.functional as F
 from PIL import Image
-
+import re
 
 def read_correct_image(path):
     offset = 0
@@ -26,7 +26,7 @@ def read_correct_image(path):
     return ct_org
 
 
-class CTDataset(Dataset):
+class CTDatasetMukund(Dataset):
     def __init__(self, root_dir_h, root_dir_l, length):
         self.data_root_l = root_dir_l + "/"
         self.data_root_h = root_dir_h + "/"
@@ -39,6 +39,14 @@ class CTDataset(Dataset):
         return len(self.img_list_l)
 
     def __getitem__(self, idx):
+        if torch.is_tensor(idx):
+            idx = idx.tolist()
+
+        inputs_np = None
+        targets_np = None
+        rmin = 0
+        rmax = 1
+
         image_input = read_correct_image(self.data_root_l + self.img_list_l[idx])
         image_target = read_correct_image(self.data_root_h + self.img_list_h[idx])
 
@@ -60,7 +68,7 @@ class CTDataset(Dataset):
 
         return {'LQ': inputs, 'HQ': targets}
 
-class CTDatasetAyush(Dataset):
+class CTDataset(Dataset):
     def __init__(self, root_dir_h, root_dir_l,  length, root_hq_vgg3 = None, root_hq_vgg1= None):
         self.data_root_l = root_dir_l + "/"
         self.data_root_h = root_dir_h + "/"
@@ -123,8 +131,16 @@ class CTDatasetAyush(Dataset):
         assert ((np.amin(image_input) >= 0) and (np.amax(image_input) <= 1))
         mins = ((cmin1 + cmin2) / 2)
         maxs = ((cmax1 + cmax2) / 2)
-        image_target = image_target.reshape((1, 512, 512))
-        image_input = image_input.reshape((1, 512, 512))
+
+        image_input = image_input[np.newaxis, :, :]
+        image_target = image_target[np.newaxis, :, :]
+
+        # Repeat the single channel three times to create three channels
+        image_input = np.repeat(image_input, 3, axis=0)
+        image_target = np.repeat(image_target, 3, axis=0)
+        #
+        # image_target = image_target.reshape((1, 512, 512))
+        # image_input = image_input.reshape((1, 512, 512))
         inputs_np = image_input
         targets_np = image_target
 
@@ -292,13 +308,29 @@ class CTDatasetAyush(Dataset):
 #         img = (img - MIN_B) / (MAX_B - MIN_B)
 #         return img
 
-
+#
 dataset_dict = {
     'train': partial(CTDataset, root_dir_h="/projects/synergy_lab/garvit217/enhancement_data/train/HQ/",
                       root_dir_l="/projects/synergy_lab/garvit217/enhancement_data/train/LQ", length=5120),
-    'test': partial(CTDataset, root_dir_h="/projects/synergy_lab/garvit217/enhancement_data/test/HQ/", 
+    'test': partial(CTDataset, root_dir_h="/projects/synergy_lab/garvit217/enhancement_data/test/HQ/",
                     root_dir_l="/projects/synergy_lab/garvit217/enhancement_data/test/LQ/", length=914),
 }
+## LANL
+# dataset_dict = {
+#     'train': partial(CTDataset, root_dir_h="/projects/synergy_lab/garvit217/enhancement_data/train/HQ/",
+#                       root_dir_l="/projects/synergy_lab/garvit217/enhancement_data/train/LQ", length=5120),
+#     'test': partial(CTDataset, root_dir_h="/projects/synergy_lab/garvit217/enhancement_data/test/HQ/",
+#                     root_dir_l="/projects/synergy_lab/garvit217/enhancement_data/test/LQ/", length=914),
+# }
+
+# dataset_dict = {
+#     'train': partial(CTDataset, root_dir_h="/Users/ayushchaturvedi/Documents/test_data/HQ/",
+#                       root_dir_l="/Users/ayushchaturvedi/Documents/test_data/LQ", length=784),
+#     'test': partial(CTDataset, root_dir_h="/Users/ayushchaturvedi/Documents/test_data/HQ/",
+#                     root_dir_l="/Users/ayushchaturvedi/Documents/test_data/LQ/", length=784),
+# }
+
+
 # dataset_dict = {
 #     'train': partial(CTDataset, dataset='mayo_2016_sim', mode='train', test_id=9, dose=5  , context=True),
 #     'mayo_2016_sim': partial(CTDataset, dataset='mayo_2016_sim', mode='test', test_id=9, dose=5, context=True),
